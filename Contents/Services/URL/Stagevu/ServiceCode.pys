@@ -1,0 +1,42 @@
+# Stagevu
+#
+####################################################################################################
+def NormalizeURL(url):
+
+	return url.split('?')[0]
+
+####################################################################################################
+def MetadataObjectForURL(url):
+
+	html = HTML.ElementFromURL(url)
+
+	title = html.xpath('//title/text()')[0].split(' - Stagevu')[0]
+	thumb = html.xpath('//param[@name="previewImage"]/@value')[0]
+
+	return VideoClipObject(
+		title = title,
+		thumb = thumb
+	)
+
+####################################################################################################
+def MediaObjectsForURL(url):
+
+	return [
+		MediaObject(
+			video_resolution = 'sd',
+			audio_channels = 2,
+			optimized_for_streaming = False,
+			parts = [
+				PartObject(key=Callback(PlayVideo, url=url))
+			]
+		)
+	]
+
+####################################################################################################
+@indirect
+def PlayVideo(url):
+
+	html = HTML.ElementFromURL(url)
+	video_url = html.xpath('//embed[@type="video/divx"]/@src')[0]
+
+	return IndirectResponse(VideoClipObject, key=video_url)

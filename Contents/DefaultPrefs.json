@@ -1,0 +1,8 @@
+[
+	{
+		"id": "site_url",
+		"type": "text",
+		"label": "Site URL",
+		"default": "http://lookiz.me/"
+	}
+]

@@ -1,0 +1,55 @@
+# Vidto
+#
+import time
+####################################################################################################
+def NormalizeURL(url):
+
+	return url.split('?')[0]
+
+####################################################################################################
+def MetadataObjectForURL(url):
+
+	html = HTML.ElementFromURL(url)
+	title = html.xpath('//h2[@class="video-page-head"]/text()')[0].strip()
+
+	return VideoClipObject(
+		title = title
+	)
+
+####################################################################################################
+def MediaObjectsForURL(url):
+
+	return [
+		MediaObject(
+			video_resolution = 'sd',
+			audio_channels = 2,
+			optimized_for_streaming = False,
+			parts = [
+				PartObject(key=Callback(PlayVideo, url=url))
+			]
+		)
+	]
+
+####################################################################################################
+@indirect
+def PlayVideo(url):
+
+	html = HTML.ElementFromURL(url)
+	post_values = {}
+
+	for item in html.xpath('//form[@method="POST"]/input'):
+
+		name = item.get('name')
+		value = item.get('value')
+		post_values[name] = value
+
+	time.sleep(6)
+
+	page = HTTP.Request(url, values=post_values, method='POST').content
+
+	file = Regex('a id="lnk_download" href="([^"]+)"').search(page)
+
+	if file:
+		return IndirectResponse(VideoClipObject, key=file.group(1))
+
+	raise Ex.MediaNotAvailable
