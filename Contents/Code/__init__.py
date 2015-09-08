@@ -1,6 +1,6 @@
 #SITE : http://www.lookiz.me
 # coding: utf-8
-TITLE = 'Streaming FR'
+TITLE = 'StreamingFR'
 
 ####################################################################################################
 def Start():
@@ -26,10 +26,7 @@ def MainMenu():
 
 	oc.add(DirectoryObject(key=Callback(Section, title='Videos', type='movies'), title='Videos'))
 	oc.add(DirectoryObject(key=Callback(Section, title='Series', type='tv'), title='Series'))
-	oc.add(DirectoryObject(key=Callback(Section, title='Rechercher', type='search'), title='Rechercher'))
 	oc.add(PrefsObject(title='Preferences'))
-	oc.add(InputDirectoryObject(key=Callback(Search, type=type), title='Search', prompt='Search', thumb=R('search.png')))
-
 
 	return oc
 
@@ -43,16 +40,15 @@ def Section(title, type='movies'):
 		rel_url = 'movies?sort=%s'
 
 	oc = ObjectContainer(title2=title)
-	if type == 'search':
-		oc.add(DirectoryObject(key=Callback(Media, title='Rechercher une video', rel_url="movies?t=", title='Rechercher une video'))
+	if type == 'tv':
+		oc.add(InputDirectoryObject(key=Callback(Search, type=type), title=u'Rechercher une série', thumb=R('icon-search.png'), prompt=u"Rechercher une série"))
 	else:
-		oc.add(DirectoryObject(key=Callback(Media, title='Tous', rel_url=rel_url % ('created&direction=desc')), title='Tous'))
-		oc.add(DirectoryObject(key=Callback(Media, title='Derniers Ajouts', rel_url=rel_url % ('created&direction=desc')), title='Derniers Ajouts'))
-		oc.add(DirectoryObject(key=Callback(Media, title='Meilleurs Notes', rel_url=rel_url % ('vote&direction=desc')), title='Meilleurs Notes'))
-		oc.add(DirectoryObject(key=Callback(Media, title='Plus Populaires', rel_url=rel_url % ('views&direction=desc')), title='Plus Populaires'))
-		oc.add(DirectoryObject(key=Callback(Media, title='Plus Vus', rel_url=rel_url % ('likes&direction=desc')), title='Plus Vus'))
-
-	oc.add(InputDirectoryObject(key=Callback(Search, type=type), title='Search', prompt='Search', thumb=R('search.png')))
+		oc.add(InputDirectoryObject(key=Callback(Search, type=type), title=u'Rechercher une vidéo', thumb=R('icon-search.png'), prompt=u"Rechercher une vidéo"))
+	
+	oc.add(DirectoryObject(key=Callback(Media, title='Derniers Ajouts', rel_url=rel_url % ('created&direction=desc')), title='Derniers Ajouts'))
+	oc.add(DirectoryObject(key=Callback(Media, title='Meilleurs Notes', rel_url=rel_url % ('vote&direction=desc')), title='Meilleurs Notes'))
+	oc.add(DirectoryObject(key=Callback(Media, title=u'Derniers Modifiés', rel_url=rel_url % ('modified&direction=desc')), title=u'Derniers Modifiés'))
+	oc.add(DirectoryObject(key=Callback(Media, title='Plus Vus', rel_url=rel_url % ('likes&direction=desc')), title='Plus Vus'))
 
 	return oc
 
@@ -159,19 +155,20 @@ def MediaVersions(url, title, thumb):
 
 	html = HTML.ElementFromURL(url, encoding='utf-8', errors='ignore')
 	summary = html.xpath('//div[@class="resume"]/text()')
-	#Log("Résumé = "+summary[0])
+	version = html.xpath('//li[@role="presentation"]/a/text()')
 
 	oc = ObjectContainer(title2=title)
 
-	for ext_url in html.xpath('//div[@class="tab-pane"]//iframe/@src'):
+	for ext_url in html.xpath('//div[@role="tabpanel"]//iframe'):
 
-		url = ext_url
+		url = ext_url.xpath('./@src')[0]
 		host = url
 		source = Regex('(?:https?:\/\/)?(?:www\.)?(.*?)\/').search(host).group(1)
+		version = ext_url.xpath('./ancestor::div[@role="tabpanel"][1]/@id')[0].upper()
 
 		oc.add(DirectoryObject(
 			key = Callback(MediaPlayback, url=url, title=title, summary=summary[0], thumb=thumb, source=source),
-			title = u'%s - %s' % (host, title),
+			title = u'%s - %s - %s' % (version, title, host),
 			summary = summary[0],
 			thumb = thumb
 		))
@@ -194,7 +191,6 @@ def MediaPlayback(url, title, summary, thumb, source):
 	elif source == 'thevideo.me':
 		page = HTTP.Request(url).content
 		fichier = Regex("\'360p\', \'file\' : \'(.*?)\'").search(page).group(1)
-		Log(fichier)
 	elif source == 'exashare.com':
 		import time
 		id_film = Regex("-(.*?)-").search(url).group(1)
@@ -214,8 +210,6 @@ def MediaPlayback(url, title, summary, thumb, source):
 		post_values["hash"] = val_hash
 		post_values["imhuman"] = "Proceed+to+video"
 		page = HTTP.Request(url, values=post_values, method='POST').content
-		#Log(page)
-		Log(post_values)
 		search_page_file_mp4 = Regex('file: \"(.*?)\"').search(page)
 		if search_page_file_mp4:
 			fichier = search_page_file_mp4.group(1)
@@ -223,7 +217,6 @@ def MediaPlayback(url, title, summary, thumb, source):
 			cpt = 0
 			while fichier == "" or cpt<5:
 				time.sleep(2)
-				Log(page)
 				val_hash = Regex('hash\" value=\"(.*)\"').search(exashare).group(1)
 				val_fname = Regex('fname\" value=\"(.*)\"').search(exashare).group(1)
 				val_usrlogin = Regex('usr_login\" value=\"(.*)\"').search(exashare).group(1)
@@ -264,10 +257,7 @@ def MediaPlayback(url, title, summary, thumb, source):
 		HTTP.Headers['Cookie'] = "lang=french;aff=26595;__utmt=1"
 		time.sleep(10)
 		page = HTTP.Request(url, values=post_values, method='POST').content
-		Log("RECHERCHER")
-		Log(page)
 		search_page_file_mp4 = Regex('file=(.*)&amp\;provider').search(page)
-		Log(search_page_file_mp4)
 		if search_page_file_mp4:
 			fichier = search_page_file_mp4.group(1)
 	else:
@@ -315,8 +305,8 @@ def CreateVideoClipObject(url, title, summary, include_container=False):
 def Search(type='movies', query=''):
 
 	if type == 'tv':
-		rel_url = 'index.php?tv=&search_keywords=%s' % (String.Quote(query, usePlus=True).lower())
+		rel_url = 'series?t=%s' % (String.Quote(query, usePlus=True).lower())
 	else:
-		rel_url = 'index.php?search_keywords=%s' % (String.Quote(query, usePlus=True).lower())
+		rel_url = 'movies?t=%s' % (String.Quote(query, usePlus=True).lower())
 
 	return Media(title=query, rel_url=rel_url)
