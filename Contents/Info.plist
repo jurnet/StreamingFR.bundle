@@ -2,11 +2,21 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- A string property containing a unique identifier for the plug-in. -->
 	<key>CFBundleIdentifier</key>
 	<string>com.plexapp.plugins.streamingfr</string>
+
+	<!-- A string specifying a comma-separated list of client platforms supported by the bundle’s contents. -->
 	<key>PlexClientPlatforms</key>
 	<string>*</string>
+
+	<!-- A string property specifying the bundle’s target framework version. -->
 	<key>PlexFrameworkVersion</key>
 	<string>2</string>
+
+	<!-- OBLIGATOIRE pour importer des librairies externes -->
+	<key>PlexPluginCodePolicy</key>
+    <string>Elevated</string>
+
 </dict>
 </plist>

@@ -1,8 +1,9 @@
 [
 	{
 		"id": "site_url",
-		"type": "text",
+		"type": "enum",
 		"label": "Site URL",
-		"default": "http://lookiz.me/"
+		"values": ["http://lookiz.me","http://www.streamog.com"],
+		"default": "http://lookiz.me"
 	}
 ]

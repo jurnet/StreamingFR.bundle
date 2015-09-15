@@ -1,0 +1,284 @@
+"""
+This a fairly special URL Service that wraps around a custom URL (i.e: only ever seen as 
+part of this plugin and not seen in the wild) and which is designed to minimise the number
+of requests we make to IceFilms. 
+
+Since each provider URL is hidden away behind a layer of requests, this URL Service allows
+us to delay making all these request until the user actually choose to play a video from a
+source. At that point, this will retrieve the real Provider's URL from IceFilms and 
+interact with Plex's URL Service to make sure the real provider's URL Service is called.
+"""
+
+import re, urlparse, cgi, base64
+
+import urllib, urllib2
+import random
+
+from datetime import date
+
+USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_2) AppleWebKit/534.51.22 (KHTML, like Gecko) Version/5.1.1 Safari/534.51.22'
+
+ICEFILMS_URL = "http://www.icefilms.info"
+ICEFILMS_VIDEO_URL = ICEFILMS_URL + "/ip.php?v=%s"
+ICEFILMS_SOURCES_URL = ICEFILMS_URL + "/membersonly/components/com_iceplayer/video.php?h=374&w=631&vid=%s&img="
+ICEFILMS_AJAX = ICEFILMS_URL+'membersonly/components/com_iceplayer/video.phpAjaxResp.php'
+ICEFILMS_REFERRER = ICEFILMS_URL
+
+PLEX_URL = "http://127.0.0.1:32400"
+PLUGIN_URL = PLEX_URL + "/video/icefilms"
+
+def MenuSection(title, type):
+
+	if type == 'tv':
+		rel_url = 'series?sort=%s'
+	else:
+		rel_url = 'movies?sort=%s'
+
+	oc = ObjectContainer(title2=title)
+	if type == 'tv':
+		oc.add(InputDirectoryObject(key=Callback(Search, type=type), title=u'Rechercher une série', thumb=R('icon-search.png'), prompt=u"Rechercher une série"))
+	else:
+		oc.add(InputDirectoryObject(key=Callback(Search, type=type), title=u'Rechercher une vidéo', thumb=R('icon-search.png'), prompt=u"Rechercher une vidéo"))
+	
+	oc.add(DirectoryObject(key=Callback(Media, title='Derniers Ajouts', rel_url=rel_url % ('created&direction=desc')), title='Derniers Ajouts'))
+	oc.add(DirectoryObject(key=Callback(Media, title='Meilleurs Notes', rel_url=rel_url % ('vote&direction=desc')), title='Meilleurs Notes'))
+	oc.add(DirectoryObject(key=Callback(Media, title=u'Derniers Modifiés', rel_url=rel_url % ('modified&direction=desc')), title=u'Derniers Modifiés'))
+	oc.add(DirectoryObject(key=Callback(Media, title='Plus Vus', rel_url=rel_url % ('likes&direction=desc')), title='Plus Vus'))
+
+
+def NormalizeURL(url):
+
+	#Log("*********** In IceFilms normalizeURL")
+
+	# Deal with special providerInfo URL built up by plugin to return
+	# info about this provider. For all other normal URLs, do nothing. 
+	if ("providerinfo.icefilms" in url):
+		return url + "?sources=true"
+		
+	return url
+	
+def MetadataObjectForURL(url):
+
+	#Log('In MetadataObjectForURL for IceFilms (' + url + ')')
+	
+	if ("providerinfo" in url):
+		raise Exception("providerinfo URL supported only for NormalizeURL")
+	
+	video = None
+	
+	# Plugin should have access to info about this URL if user used plugin to launch video.
+	# Bad things can happen here. Still want to run rest of code if possible though...
+	try:
+	
+		if ('play://' in url):
+			url = url.replace("play://","http://")
+			url_parts = urlparse.urlparse(url)
+			qs = cgi.parse_qs(url_parts.query)
+			url = urllib.unquote_plus(qs['browse_url'][0])
+		
+		request = urllib2.Request(PLUGIN_URL + "/mediainfo/%s" % String.Encode(url))
+		mediainfo = JSON.ObjectFromString(urllib2.urlopen(request).read())
+		
+		#Log(mediainfo)
+		
+		video = VideoClipObject(
+			title=mediainfo['title'],
+			summary=mediainfo['summary'],
+			art=mediainfo['background'],
+			thumb= mediainfo['poster'],
+			rating = float(mediainfo['rating']),
+			duration=mediainfo['duration'],
+			year=mediainfo['year'],
+			originally_available_at= (
+				date.fromordinal(mediainfo['release_date'])
+				if ('release_date' in mediainfo and mediainfo['release_date'])  else None
+			),
+			genres=mediainfo['genres'],
+		)
+		
+	except Exception, ex:
+		Log(ex)
+		
+	#Log(video)
+
+	if video is None:
+		# Return bare minimum. This is never shown to users.
+		video = VideoClipObject(
+			title = 'IceFilms Redirect Page',
+			summary = 'IceFilms Redirect Page',
+			thumb = None,
+		)
+	
+	return video
+
+def MediaObjectsForURL(url):
+
+	#Log('In MediaObjectsForURL for IceFilms (' + url + ')')
+	
+	if ("providerinfo" in url):
+		raise Exception("providerinfo URL supported only for NormalizeURL")
+	
+	
+	if ("captcha://" in url):
+		
+		provider_url = GetSourceFromURL(url)
+		provider_url_parts = urlparse.urlparse(provider_url)
+		return URLService.MediaObjectsForURL(
+			urlparse.ParseResult(
+				"captcha",
+				provider_url_parts.netloc,
+				provider_url_parts.path,
+				provider_url_parts.params,
+				provider_url_parts.query, 
+				provider_url_parts.fragment
+			).geturl()	
+		)
+		
+	elif ("play://" in url):
+	
+		url = url.replace("play://","http://")
+		url_parts = urlparse.urlparse(url)
+		qs = cgi.parse_qs(url_parts.query)
+		
+		browse_url = urllib.unquote_plus(qs['browse_url'][0])
+		final_url =  urllib.unquote_plus(qs['final_url'][0])
+		
+		return [
+			MediaObject(
+				parts = [PartObject(key=Callback(PlayCaptchaVideo, browse_url=browse_url, provider_url=final_url))],
+			)
+		]
+		
+	else:
+	
+		# Delay working out the real provider's URL until video is picked.
+		# Passed in URL should be a made up URL of form /external/icefilm_item_id/part_id
+		return [
+			MediaObject(
+				parts = [PartObject(key=Callback(PlayVideo, url=url))],
+			)
+		]
+
+@indirect
+def PlayCaptchaVideo(browse_url, provider_url):
+
+	#Log("IN PlayCaptchaVideo" + provider_url)
+	
+	PlaybackStarted(url=browse_url)
+	
+	return ObjectContainer(
+		objects = [
+			VideoClipObject(
+				items = [
+					MediaObject(parts = [PartObject(key=provider_url)])
+				]
+			)
+		]
+	)
+
+@indirect
+def PlayVideo(url):
+	
+	provider_url = GetSourceFromURL(url)
+	media_objects = URLService.MediaObjectsForURL(provider_url)
+	
+	#Log(media_objects)
+	
+	# !!!Complete Hack Alert!!!
+	# Roku client doesn't handle multiple indirect directives.
+	# So, resolve them on it's behalf in the dumbest way possible.
+	# This makes so many assumptions, it's safe to assume that this
+	# will break in a horrible way at some point.
+	if media_objects[0].parts[0].key.find("indirect=1") >= 0:
+	
+		part_url = media_objects[0].parts[0].key
+
+		# Putlocker / Sockshare needs to know the client platform so it can do magic.
+		request = urllib2.Request(
+			PLEX_URL + part_url,
+			None, 
+			{ 'X-Plex-Client-Platform':Client.Platform }
+		)
+		response = urllib2.urlopen(request).read()
+
+		response_obj = XML.ElementFromString(response)		
+		media_objects[0].parts[0].key = response_obj.xpath("//Part/@key")[0]
+		
+	if (len(media_objects) > 0):
+		PlaybackStarted(url=url)
+		
+	return ObjectContainer(
+		objects = [
+			VideoClipObject(
+				items = media_objects
+			)
+		]
+	)
+	
+# Given a plugin specific IceFilms URL, work out final provider URL.
+def GetSourceFromURL(url):
+
+	id_reg_ex = re.compile("/(\d+)/(\d+)")
+	match = id_reg_ex.search(url)
+	id = match.group(1)
+	part_id = match.group(2)
+	
+	headers = {}
+	headers['User-Agent'] = USER_AGENT
+
+	# Reload sources page to make sure we've got latest version of all the bits we need.
+	sources_page = HTTP.Request(ICEFILMS_SOURCES_URL  % id, cacheTime=0, headers=headers)
+	
+	# Extract out the secret arguments that are needed to get the real URL of 
+	# sources for this item.
+	secret = re.search("f\.lastChild\.value=\"([^\"]+)\",a", sources_page.content).group(1)
+	t = re.search('"&t=([^"]+)",', sources_page.content).group(1)
+	
+	params = {}
+	params['id'] = part_id
+	params['s'] = random.randrange(5, 50)
+	params['iqs'] = ''	
+	params['url'] = ''
+	params['m'] = random.randrange(100, 300) * -1
+	params['cap'] = ''
+	params['sec'] = secret
+	params['t'] = t	
+
+	page = HTTP.Request(ICEFILMS_URL + "/membersonly/components/com_iceplayer/video.phpAjaxResp.php", values=params, headers=headers).content
+	
+	provider_url = ICEFILMS_URL + page
+	url_parts = urlparse.urlparse(provider_url)
+	qs = cgi.parse_qs(url_parts.query)
+	provider_url = urllib.unquote_plus(qs['url'][0])
+	Log(provider_url)
+	
+	#page = HTTP.Request(ICEFILMS_URL + page).content
+	#url_loc = page.rfind('http')
+
+	#if url_loc == -1:
+	#	return None
+
+	#url_end = page.find('<', url_loc)
+	#provider_url = urllib.unquote(page[url_loc:url_end])
+	
+	return provider_url
+	
+	
+def LogProviderError(msg="", ex=None):
+
+	Log("************************** PROVIDER ERROR: " + msg)
+	return []
+	
+##################################################################################################
+# Plugin specific helper methods.
+def PlaybackStarted(url):
+	
+	# Bad things can happen here. Let's try to be neat though....
+	try:
+		#Log(PLUGIN_URL + "/playback/" + String.Encode(url))
+		request = urllib2.Request(PLUGIN_URL + "/playback/" + String.Encode(url))
+		response = urllib2.urlopen(request)
+		
+	except Exception, ex:
+		Log.Exception("Error whilst trying to mark item as played")
+		pass
