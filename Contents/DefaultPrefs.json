@@ -3,7 +3,7 @@
 		"id": "site_url",
 		"type": "enum",
 		"label": "Site URL",
-		"values": ["http://lookiz.me","http://www.streamog.com"],
+		"values": ["http://lookiz.me","http://www.streamog.fr"],
 		"default": "http://lookiz.me"
 	}
 ]

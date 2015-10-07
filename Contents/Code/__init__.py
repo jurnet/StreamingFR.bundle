@@ -1,12 +1,17 @@
 # coding: utf-8
 TITLE = 'StreamingFR'
+## FICHIER DE LOG : tail -f /Users/jeanphilippejurnet/Library/Logs/PMS\ Plugin\ Logs/com.plexapp.plugins.streamingfr.log
+## Kill Plex
+## Reglage -> Lecteur -> Desactivé "Lecture Directe"
+## Installer phantomjs
+PHANTOMJS_URL = "/usr/local/Cellar/phantomjs/2.0.0/bin/phantomjs"
 
 ####################################################################################################
 def Start():
 
 	ObjectContainer.title1 = TITLE
 	DirectoryObject.thumb = R('icon-default.jpg')
-	HTTP.CacheTime = 0
+	HTTP.CacheTime = 0#CACHE_1HOUR
 	HTTP.Headers['User-Agent'] = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/41.0.2272.101 Safari/537.36'
 
 ####################################################################################################
@@ -28,18 +33,18 @@ def MainMenu():
 	oc.add(DirectoryObject(key=Callback(Section, title='Series', type='tv'), title='Series'))
 	oc.add(PrefsObject(title='Preferences'))
 
-
 	#url1 = 'http://fs35.youwatch.org:8777/slvpz4afosoax3ptx3nift52u4sp73jynewnh2ouhnjwak3l6jagi72xse/video.mp4'
 	#url2 = 'http://techslides.com/demos/sample-videos/small.mp4'
 	#url3 = 'http://fs23.exashare.com:8777/7wxkdvwnzym56odwtyi6jw7svh7fn3zabx2jlpxz7ujsr6qrnetrcf6ge7la/v.mp4'
 	#url4 = "http://c7.vkcache.com/sec/p_urGIcT13_wTFqCDkBFEg/1442264400/hls-vod-s5/flv/api/files/videos/2015/09/07/144163487495d8c.mp4.m3u8"
-	'''
+	url5 = "https://openload.co/stream/rIbAgXeujYo~1444308446~178.20.0.0~Ljb2RUK8?mime=true"
+	
 	oc.add(CreateVideoClipObject(
-			url = url2,
+			url = url5,
 			title = "title",
 			summary = "summary"
 		))
-	'''
+	
 	return oc
 
 ####################################################################################################
@@ -64,14 +69,14 @@ def Section(title, type='movies'):
 		oc.add(DirectoryObject(key=Callback(Media, title=u'Derniers Modifiés', rel_url=rel_url % ('modified&direction=desc')), title=u'Derniers Modifiés'))
 		oc.add(DirectoryObject(key=Callback(Media, title='Plus Vus', rel_url=rel_url % ('likes&direction=desc')), title='Plus Vus'))
 
-	# SITE = http://www.streamog.com
-	elif Prefs['site_url'] == "http://www.streamog.com":
+	# SITE = http://www.streamog.fr
+	elif Prefs['site_url'] == "http://www.streamog.fr":
 
 		if type == 'tv':
 			rel_url = 'series-streaming'
 			
 		else:
-			rel_url = 'films'
+			rel_url = 'films-streaming'
 
 		oc.add(DirectoryObject(key=Callback(Media, title='Derniers Ajouts', rel_url=rel_url), title='Derniers Ajouts'))
 		oc.add(InputDirectoryObject(key=Callback(Search, type=type), title=u'Rechercher', thumb=R('icon-search.png'), prompt=u"Rechercher"))
@@ -127,8 +132,8 @@ def Media(title, rel_url, page=1):
 					title = 'Plus...'
 				))
 
-	# SITE = http://www.streamog.com
-	elif Prefs['site_url'] == "http://www.streamog.com":
+	# SITE = http://www.streamog.fr
+	elif Prefs['site_url'] == "http://www.streamog.fr":
 		url = '%s/%s/page/%d' % (Prefs['site_url'].rstrip('/'), rel_url, page)
 		html = HTML.ElementFromURL(url, encoding='utf-8', errors='ignore')
 		for item in html.xpath('//div[@class="moviefilm"]//a[img]'):
@@ -187,8 +192,8 @@ def MediaSeasons(url, title, thumb):
 				thumb = thumb
 			))
 
-	# SITE = http://www.streamog.com
-	elif Prefs['site_url'] == "http://www.streamog.com":
+	# SITE = http://www.streamog.fr
+	elif Prefs['site_url'] == "http://www.streamog.fr":
 		for season in html.xpath('//div[@class="filmicerik"]/div[@align="center"]/img/@alt'):
 
 			oc.add(DirectoryObject(
@@ -223,8 +228,8 @@ def MediaEpisodes(url, title, thumb):
 				thumb = thumb
 			))
 
-	# SITE = http://www.streamog.com
-	elif Prefs['site_url'] == "http://www.streamog.com":
+	# SITE = http://www.streamog.fr
+	elif Prefs['site_url'] == "http://www.streamog.fr":
 		for item in html.xpath('//img[@alt="'+title+'"]/../following-sibling::div[1]/ul/li'):
 			
 			x = item.xpath('./a/text()')[0]
@@ -239,7 +244,7 @@ def MediaEpisodes(url, title, thumb):
 					title = u'%s - %s - %s' % (version, title, source),
 					summary = summary[0],
 					thumb = thumb
-				))	
+				))  
 				
 	# Si vide de oc alors : return ObjectContainer(header=u'Aucun épisode', message=u'Aucun épisode')
 	return oc
@@ -273,8 +278,8 @@ def MediaVersions(url, title, thumb):
 				thumb = thumb
 			))
 	
-	# SITE = http://www.streamog.com
-	elif Prefs['site_url'] == "http://www.streamog.com":
+	# SITE = http://www.streamog.fr
+	elif Prefs['site_url'] == "http://www.streamog.fr":
 		import time
 		import urllib
 		import urllib2
@@ -292,8 +297,8 @@ def MediaVersions(url, title, thumb):
 				}
 
 			headers = {
-			    'origin': "http://www.streamog.com/"
-			    }
+				'origin': "http://www.streamog.fr/"
+				}
 
 			params = urllib.urlencode(payload)
 			req = urllib2.Request(url, params, headers)
@@ -302,16 +307,26 @@ def MediaVersions(url, title, thumb):
 			#Log(page)
 
 			list_url = re.findall("<iframe.*src=[\"']((?:.(?![\"']?\s+(?:\S+)=|[>\"']))+.)[\"']",page,re.I)
-			#Log(list_url)
+			Log(list_url)
 
 			for match_url in list_url:
-				if match_url.startswith( 'http://ok.ru' ) or match_url.startswith( 'http://videoapi.my.mail.ru' ) or match_url.startswith( 'http://hqq.tv' ) or match_url.startswith( 'http://youwatch.org' ) or match_url.startswith( 'http://exashare.com' ) or match_url.startswith( 'http://videomega.tv' ) or match_url.startswith( 'http://speedvideo.net' ) or match_url.startswith( 'http://watching.to' ):
+				if match_url.startswith( 'http://ok.ru' ) or match_url.startswith( 'http://videoapi.my.mail.ru' ) or match_url.startswith( 'http://hqq.tv' ) or match_url.startswith( 'http://youwatch.org' ) or match_url.startswith( 'http://exashare.com' ) or match_url.startswith( 'http://videomega.tv' ) or match_url.startswith( 'http://speedvideo.net' ) or match_url.startswith( 'http://watching.to' ) or match_url.startswith( 'https://openload.co' ):
 					url = match_url
 					Log(url)
+					Log("host =====")
+					Log(host)
 					source = GetSourceFromHost(host)
+
+					if source=="netu.tv":
+						supported = "NON SUPPORTE"
+					elif source=="allvid.ch" or source=="thevideo.me" or source=="watching.com" or source=="ok.ru" or source=="exashare.com" or source=="youwatch.org":
+						supported = "SUPPORTE"
+					else:
+						supported = "PAS ENCORE SUPPORTE"
+						
 					oc.add(DirectoryObject(
 						key = Callback(MediaPlayback, url=url, title=title, summary=summary[0], thumb=thumb, source=source),
-						title = u'%s - %s - %s' % (version, title, host),
+						title = u'%s - %s - %s - %s' % (version, title, host, supported),
 						summary = summary[0],
 						thumb = thumb
 					))
@@ -327,6 +342,7 @@ def MediaPlayback(url, title, summary, thumb, source):
 
 	oc = ObjectContainer()
 	fichier = ""
+	Log("SOURCE ===== ")
 	Log(source)
 	if source == 'allvid.ch':
 		page = HTTP.Request(url).content
@@ -337,12 +353,22 @@ def MediaPlayback(url, title, summary, thumb, source):
 	elif source == 'watching.com':
 		page = HTTP.Request(url).content
 		fichier = Regex("file: [\"']((?:.(?![\"']?\s+(?:\S+)=|[>\"']))+.mp4)").search(page).group(1)
-	elif source == 'ok.ru':
-		# TODO
-		page = HTTP.Request(url).content
-		fichier = Regex("file: [\"']((?:.(?![\"']?\s+(?:\S+)=|[>\"']))+.mp4)").search(page).group(1)
-		Log("Le fichier =")
+	elif source == 'openload.co':
+		from selenium import webdriver
+		driver = webdriver.PhantomJS(executable_path=PHANTOMJS_URL)
+		driver.get(url)
+		content = driver.page_source
+
+		fichier = Regex('type="video\/mp4" src="(.+)">').search(content).group(1)
+		Log("MON FICHIER = ")
 		Log(fichier)
+	elif source == 'ok.ru':
+		page = HTTP.Request(url).content
+		fichier = Regex("data-id1=\"(\d+)\"").search(page).group(1)
+		page = HTTP.Request("http://m.ok.ru/video/"+fichier).content
+		fichier = Regex("videoSrc&quot;:&quot;(.*)&quot;,&quot;movie").search(page).group(1)
+		fichier = fichier.replace('\u0026','&')
+		fichier = fichier.replace('\u003d','=')
 	elif source == 'exashare.com':
 		import time
 		id_film = Regex("-(.*?)-").search(url).group(1)
@@ -412,8 +438,8 @@ def MediaPlayback(url, title, summary, thumb, source):
 			"op":"download1"
 			}
 		headers = {
-		    'origin': "http//youwatch.org"
-		    }
+			'origin': "http//youwatch.org"
+			}
 
 		time.sleep(4)
 
@@ -443,7 +469,8 @@ def MediaPlayback(url, title, summary, thumb, source):
 ####################################################################################################
 #@route('/video/lookiz/media/playback/watch')
 def CreateVideoClipObject(url, title, summary, include_container=False):
-
+	
+	
 	Log(url)
 	videoclip_obj = VideoClipObject(
 		key = Callback(CreateVideoClipObject, url=url, title=title, summary=summary, include_container=True),
@@ -453,7 +480,7 @@ def CreateVideoClipObject(url, title, summary, include_container=False):
 		items = [
 			MediaObject(
 				parts = [
-					PartObject(key=url)
+					PartObject(key=HTTPLiveStreamURL(url=url))
 				],
 				container = Container.MP4,
 				video_codec = VideoCodec.H264,
@@ -469,6 +496,7 @@ def CreateVideoClipObject(url, title, summary, include_container=False):
 		return ObjectContainer(objects=[videoclip_obj])
 	else:
 		return videoclip_obj
+	
 
 ####################################################################################################
 @route('/video/lookiz/media/search')
@@ -501,6 +529,8 @@ def GetSourceFromHost(host):
 		return 'ok.ru'
 	elif host == 'MAIL.RU':
 		return 'mail.ru'
+	elif host == 'OPENLOAD':
+		return 'openload.co'	
 	else:
 		return None
 
