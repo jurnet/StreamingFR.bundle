@@ -4,10 +4,199 @@ TITLE = 'StreamingFR'
 ## REPERTOIRE DE TRAVAIL : ~/Library/Application\ Support/Plex\ Media\ Server/Plug-ins/StreamingFR.bundle/
 ## Kill Plex
 ## Reglage -> Lecteur -> Desactivé "Lecture Directe"
-## Installer phantomjs
-PHANTOMJS_URL = "/usr/local/Cellar/phantomjs/2.0.0/bin/phantomjs"
+## Installer phantomjs : brew install phantomjs
+PHANTOMJS_URL = "/usr/local/Cellar/phantomjs/2.0.1/bin/phantomjs"
 LIST_COMPATIBLE = ["allvid.ch","thevideo.me","watching.com","openload.co","speedvideo.com","speedvideo.net","ok.ru","exashare.com","youwatch.org"]
 
+####################################################################################################
+import re
+import urllib
+import urllib2
+import os
+from AADecoder import AADecoder
+####################################################################################################
+class NoRedirection(urllib2.HTTPErrorProcessor):
+  def http_response(self, request, response):
+    return response
+  https_response = http_response
+####################################################################################################
+class NoRedirectHandler(urllib2.HTTPRedirectHandler):
+    def http_error_302(self, req, fp, code, msg, headers):
+        infourl = urllib.addinfourl(fp, headers, req.get_full_url())
+        infourl.status = code
+        infourl.code = code
+        return infourl
+    http_error_300 = http_error_302
+    http_error_301 = http_error_302
+    http_error_303 = http_error_302
+    http_error_307 = http_error_302
+####################################################################################################
+class cRequestHandler:
+    REQUEST_TYPE_GET = 0
+    REQUEST_TYPE_POST = 1
+
+    def __init__(self, sUrl):
+        self.sUrl = sUrl
+        self.sRealUrl = ''
+        self.cType = 0
+        self.aParamaters = {}
+        self.aHeaderEntries = []
+        self.removeBreakLines(True)
+        self.removeNewLines(True)
+        self.setDefaultHeader()
+
+    def removeNewLines(self, bRemoveNewLines):
+        self.bRemoveNewLines = bRemoveNewLines
+
+    def removeBreakLines(self, bRemoveBreakLines):
+        self.bRemoveBreakLines = bRemoveBreakLines
+
+    def setRequestType(self, cType):
+        self.cType = cType
+
+    def addHeaderEntry(self, sHeaderKey, sHeaderValue):
+        aHeader = {sHeaderKey : sHeaderValue}
+        self.aHeaderEntries.append(aHeader)
+
+    def addParameters(self, sParameterKey, mParameterValue):
+        self.aParamaters[sParameterKey] = mParameterValue
+
+    def getResponseHeader(self):
+        return self.sResponseHeader
+
+    # url after redirects
+    def getRealUrl(self):
+        return self.sRealUrl;
+
+    def request(self):
+        self.sUrl = self.sUrl.replace(' ', '+')
+        return self.callRequest()
+
+    def getRequestUri(self):
+        return self.sUrl + '?' + urllib.urlencode(self.aParamaters)
+
+    def setDefaultHeader(self):
+        UA = 'Mozilla/5.0 (Windows; U; Windows NT 5.1; de-DE; rv:1.9.0.3) Gecko/2008092417 Firefox/3.0.3'
+        self.addHeaderEntry('User-Agent', UA)
+        self.addHeaderEntry('Accept-Language', 'de-DE,de;q=0.8,en-US;q=0.6,en;q=0.4')
+        self.addHeaderEntry('Accept-Charset', 'ISO-8859-1,utf-8;q=0.7,*;q=0.7')
+
+    def callRequest(self):
+        sParameters = urllib.urlencode(self.aParamaters)
+
+        if (self.cType == cRequestHandler.REQUEST_TYPE_GET):
+            if (len(sParameters) > 0):
+                if (self.sUrl.find('?') == -1):
+                    self.sUrl = self.sUrl + '?' + str(sParameters)
+                    sParameters = ''
+                else:
+                    self.sUrl = self.sUrl + '&' + str(sParameters)
+                    sParameters = ''
+
+        if (len(sParameters) > 0):
+            oRequest = urllib2.Request(self.sUrl, sParameters)
+        else:
+            oRequest = urllib2.Request(self.sUrl)
+
+        for aHeader in self.aHeaderEntries:
+                for sHeaderKey, sHeaderValue in aHeader.items():
+                    oRequest.add_header(sHeaderKey, sHeaderValue)
+
+        sContent = ''
+
+        try:
+            oResponse = urllib2.urlopen(oRequest, timeout=30)
+            sContent = oResponse.read()
+
+            self.sResponseHeader = oResponse.info()
+            self.sRealUrl = oResponse.geturl()
+
+            oResponse.close()
+
+        except urllib2.HTTPError, e:
+            if e.code == 503:
+                if cloudflare.CheckIfActive(e.headers):
+                    cookies = e.headers['Set-Cookie']
+                    cookies = cookies.split(';')[0]
+                    from resources.lib.cloudflare import CloudflareBypass
+                    sContent = CloudflareBypass().GetHtml(self.sUrl,e.read(),cookies)
+
+                    self.sResponseHeader = ''
+                    self.sRealUrl = ''
+
+            if not  sContent:
+                cConfig().error("%s,%s" % (cConfig().getlanguage(30205), self.sUrl))
+                return ''
+
+        if (self.bRemoveNewLines == True):
+            sContent = sContent.replace("\n","")
+            sContent = sContent.replace("\r\t","")
+
+        if (self.bRemoveBreakLines == True):
+            sContent = sContent.replace("&nbsp;","")
+
+        return sContent
+
+    def getHeaderLocationUrl(self):
+        opened = urllib.urlopen(self.sUrl)
+        return opened.geturl()
+####################################################################################################
+class cParser:
+
+    def parseSingleResult(self, sHtmlContent, sPattern):
+        aMatches = re.compile(sPattern).findall(sHtmlContent)
+        if (len(aMatches) == 1):
+                aMatches[0] = self.replaceSpecialCharacters(aMatches[0])
+                return True, aMatches[0]
+        return False, aMatches
+
+    def replaceSpecialCharacters(self, sString):
+        res=sString.replace('\\/','/').replace('&amp;','&').replace('\xc9','E').replace('&#8211;', '-')
+        res=res.replace('&#038;', '&').replace('&rsquo;','\'').replace('\r','').replace('\n','')
+        res=res.replace('\t','').replace('&#039;',"'")
+        return res
+
+    def parse(self, sHtmlContent, sPattern, iMinFoundValue = 1):
+        sHtmlContent = self.replaceSpecialCharacters(str(sHtmlContent))
+        aMatches = re.compile(sPattern, re.IGNORECASE).findall(sHtmlContent)
+        if (len(aMatches) >= iMinFoundValue):
+            return True, aMatches
+        return False, aMatches
+
+    def replace(self, sPattern, sReplaceString, sValue):
+         return re.sub(sPattern, sReplaceString, sValue)
+
+    def escape(self, sValue):
+        return re.escape(sValue)
+
+    def getNumberFromString(self, sValue):
+        sPattern = "\d+"
+        aMatches = re.findall(sPattern, sValue)
+        if (len(aMatches) > 0):
+            return aMatches[0]
+        return 0
+####################################################################################################
+def supports(url):
+    return re.search(r'openload\.\w+/embed/.+', url) is not None
+
+def base10toN(num, n):
+    """Change a  to a base-n number.
+    Up to base-36 is supported without special notation."""
+
+    new_num_string = ''
+    current = num
+
+    while current != 0:
+        remainder = current % n
+        if 36 > remainder > 9:
+            remainder_string = chr(remainder + 87)
+        elif remainder >= 36:
+            remainder_string = '(' + str(remainder) + ')'
+        else:
+            remainder_string = str(remainder)
+        new_num_string = remainder_string + new_num_string
+        current = current / n
+    return new_num_string
 ####################################################################################################
 def Start():
 
@@ -289,7 +478,6 @@ def MediaEpisodes(url, title, thumb):
 	html = HTML.ElementFromURL(url, encoding='utf-8', errors='ignore')
 	oc = ObjectContainer(title2=title)
 
-
 	# SITE = http://lookiz.me
 	if Prefs['site_url'] == "http://lookiz.me":
 		for item in html.xpath('//h3[text()[contains(.,"'+title+'")]]/../../following-sibling::tr[1]/td/a[@class="num_episode"]'):
@@ -369,20 +557,24 @@ def MediaVersions(url, title, thumb):
 		oc = ObjectContainer(title2=title)
 		summary = html.xpath('//div[@class="resume"]/text()')
 		version = html.xpath('//li[@role="presentation"]/a/text()')
-
-		for ext_url in html.xpath('//div[@role="tabpanel"]//iframe'):
-
-			url = ext_url.xpath('./@src')[0]
-			host = url
-			source = Regex('(?:https?:\/\/)?(?:www\.)?(.*?)\/').search(host).group(1)
-			version = ext_url.xpath('./ancestor::div[@role="tabpanel"][1]/@id')[0].upper()
-
-			oc.add(DirectoryObject(
-				key = Callback(MediaPlayback, url=url, title=title, summary=summary[0], thumb=thumb, source=source),
-				title = u'%s - %s - %s' % (version, title, host),
-				summary = summary[0],
-				thumb = thumb
-			))
+		myLink = html.xpath('//div[@role="tabpanel"]//button/@action')
+		myData = html.xpath('//div[@role="tabpanel"]//button/@data-id')
+		Log(myLink[0])
+		post_values = {}
+		post_values["linkid"] = myData[0]
+		page = HTTP.Request(myLink[0], values=post_values, method='POST').content
+		Log("RESULTAT =====")
+		url = Regex('iframe src=\"(.*?)\"').search(page).group(1)
+		host = url
+		source = Regex('(?:https?:\/\/)?(?:www\.)?(.*?)\/').search(host).group(1)
+		version = "HD"
+		Log(source)
+		oc.add(DirectoryObject(
+			key = Callback(MediaPlayback, url=url, title=title, summary=summary[0], thumb=thumb),
+			title = u'%s - %s - %s' % (version, title, host),
+			summary = summary[0],
+			thumb = thumb
+		))
 	
 	# SITE = http://www.streamog.fr
 	elif Prefs['site_url'] == "http://www.streamog.fr":
@@ -489,6 +681,9 @@ def MediaVersions(url, title, thumb):
 @route('/video/streaming/media/playback')
 def MediaPlayback(url, title, summary, thumb):
 
+	import re
+	Log("LOG : MediaPlayback")
+	Log("URL : "+url)
 	oc = ObjectContainer()
 	source = GetSourceFromURL(url)
 	fichier = ""
@@ -517,15 +712,33 @@ def MediaPlayback(url, title, summary, thumb):
 			else:
 				fichier = ""
 		elif source == 'openload.co':
+			fichier = ""
+			#from aadecode import AADecoder#
 			from selenium import webdriver
 			driver = webdriver.PhantomJS(executable_path=PHANTOMJS_URL)
 			driver.get(url)
 			content = driver.page_source
-			search_page_file_mp4 = Regex('type="video\/mp4" src="(.+)">').search(content)
-			if search_page_file_mp4:
-				fichier = search_page_file_mp4.group(1)
-			else:
-				fichier = ""
+			oParser = cParser()
+
+			sPattern = '<script type="text\/javascript">(ﾟωﾟ.+?)<\/script>'
+			aResult = oParser.parse(content, sPattern)
+
+			for aEntry in aResult[1]:
+				
+				s = AADecoder(aEntry).decode()
+				#Log("JESUISLA DECODE : "+s)
+				fichier = driver.execute_script(s)
+				tPattern = '<span id="streamurl">(.+?)<\/span>'
+				bResult = oParser.parse(driver.page_source, tPattern)
+				
+				if bResult[0]:
+					videourl = "https://openload.co/stream/"+bResult[1][0]+"?mime=true"
+					Log("URL ==== : "+videourl)
+					videourl = getLocationHeaderFromResponse(videourl)
+					#videourl = videourl.replace("https", "http").replace("?mime=true", "")
+					Log("NEW URL ==== : "+videourl)
+					fichier = videourl
+			
 		elif source == 'ok.ru':
 			page = HTTP.Request(url).content
 			search_page_file_mp4 = Regex("data-id1=\"(\d+)\"").search(page)
@@ -741,5 +954,39 @@ def GetSupportedFromHost(host):
 		return u"SUPPORTÉ"
 	else:
 		return u"NON SUPPORTÉ"
+
+####################################################################################################
+def getLocationHeaderFromResponse(url):
+    return get_header_from_response(url,"location")
+
+def get_header_from_response(url,header_to_get="",post=None,headers=[['User-Agent', 'Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10.6; es-ES; rv:1.9.2.12) Gecko/20101026 Firefox/3.6.12']]):
+    header_to_get = header_to_get.lower()
+    urlopen = urllib2.urlopen
+    Request = urllib2.Request
+    opener = urllib2.build_opener(NoRedirectHandler())
+    urllib2.install_opener(opener)
+
+    # Diccionario para las cabeceras
+    txheaders = {}
+
+    # Array de cabeceras
+    for header in headers:
+        txheaders[header[0]]=header[1]
+
+    # Construye el request
+    req = Request(url, post, txheaders)
+    handle = urlopen(req)
+    Log("Handle")
+    Log(handle.info())
+    # Lee los datos y cierra
+    #data=handle.read()
+    info = handle.info()
+    location_header=""
+    for header in info:
+        if header==header_to_get:
+            location_header=info[header]
+    handle.close()
+    Log("location_header ====== "+location_header)
+    return location_header
 
 ####################################################################################################
